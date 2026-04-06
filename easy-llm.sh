@@ -3,7 +3,14 @@ set -euo pipefail
 
 ###############################################################################
 # Easy Local LLM for Android + Termux + llama.cpp
-# beginner-friendly + widget-ready + uninstall support
+# Stable Termux edition
+#
+# 方針:
+# - CPU default
+# - Vulkan OFF
+# - llama.cpp version pinned to b6811
+# - tests OFF
+# - build llama-server only
 ###############################################################################
 
 APP_NAME="Easy Local LLM"
@@ -24,6 +31,8 @@ MODEL_FILE_DEFAULT="$MODEL_DIR/gemma-3-4b-it-UD-Q6_K_XL.gguf"
 MODEL_NAME_DEFAULT="gemma-3-4b-it-UD-Q6_K_XL"
 
 LLAMA_REPO_URL="https://github.com/ggml-org/llama.cpp"
+LLAMA_VERSION_TAG="b6811"
+
 TERMUX_GITHUB_RELEASES_URL="https://github.com/termux/termux-app/releases"
 TERMUX_WIKI_URL="https://wiki.termux.dev/wiki/Main_Page"
 TERMUX_API_RELEASES_URL="https://github.com/termux/termux-api/releases"
@@ -34,10 +43,10 @@ HOST_DEFAULT="0.0.0.0"
 PORT_DEFAULT="8080"
 THREADS_DEFAULT="$(nproc)"
 JOBS_DEFAULT="$(nproc)"
-NGL_DEFAULT="99"
 
-CTX_SIZE_DEFAULT="4096"
-GPU_MODE_DEFAULT="cpu"     # auto | vulkan | cpu
+# CPU default
+CTX_SIZE_DEFAULT="2048"
+GPU_MODE_DEFAULT="cpu"      # cpu only by default
 OPEN_BROWSER_DEFAULT="1"    # 1=yes 0=no
 USE_WAKELOCK_DEFAULT="1"    # 1=yes 0=no
 
@@ -89,7 +98,7 @@ USE_WAKELOCK="${USE_WAKELOCK:-$USE_WAKELOCK_DEFAULT}"
 MODEL_URL="${MODEL_URL:-$MODEL_URL_DEFAULT}"
 MODEL_FILE="${MODEL_FILE:-$MODEL_FILE_DEFAULT}"
 MODEL_NAME="${MODEL_NAME:-$MODEL_NAME_DEFAULT}"
-LAST_BACKEND="${LAST_BACKEND:-unknown}"
+LLAMA_VERSION="${LLAMA_VERSION:-$LLAMA_VERSION_TAG}"
 LAST_SERVER_BIN="${LAST_SERVER_BIN:-}"
 EOF
 }
@@ -111,7 +120,7 @@ load_env() {
   MODEL_URL="${MODEL_URL:-$MODEL_URL_DEFAULT}"
   MODEL_FILE="${MODEL_FILE:-$MODEL_FILE_DEFAULT}"
   MODEL_NAME="${MODEL_NAME:-$MODEL_NAME_DEFAULT}"
-  LAST_BACKEND="${LAST_BACKEND:-unknown}"
+  LLAMA_VERSION="${LLAMA_VERSION:-$LLAMA_VERSION_TAG}"
   LAST_SERVER_BIN="${LAST_SERVER_BIN:-}"
 }
 
@@ -127,7 +136,7 @@ auto_ctx_size() {
   elif [[ "$mem" -lt 9000 ]]; then
     echo 4096
   else
-    echo 8192
+    echo 4096
   fi
 }
 
@@ -180,6 +189,7 @@ print_links() {
   echo
   bold "参考URL"
   echo "  llama.cpp             : $LLAMA_REPO_URL"
+  echo "  pinned version        : $LLAMA_VERSION_TAG"
   echo "  Hugging Face model    : $HF_MODEL_PAGE_URL"
   echo "  direct model file     : $MODEL_URL"
   echo "  Termux Releases       : $TERMUX_GITHUB_RELEASES_URL"
@@ -192,9 +202,9 @@ print_links() {
 print_beginner_notes() {
   echo
   bold "初心者向けメモ"
-  echo "  1. 同じWi-Fi内のPCやタブレットからアクセスできます。"
-  echo "  2. 通信できない場合は同じWi-Fiか確認してください。"
-  echo "  3. 重い・落ちる場合は CPUモードや CTX_SIZE=2048 を試してください。"
+  echo "  1. このスクリプトは安定性重視で CPU 動作をデフォルトにしています。"
+  echo "  2. 同じWi-Fi内のPCやタブレットからアクセスできます。"
+  echo "  3. 重い場合は CTX_SIZE=2048 のまま使うのがおすすめです。"
   echo "  4. 長時間使う場合は Android のバッテリー最適化を見直すと安定しやすいです。"
   echo "  5. Termux:Widget を入れると次回からホーム画面1タップ起動ができます。"
   echo
@@ -231,11 +241,8 @@ open_browser_if_possible() {
 recommend_retry_commands() {
   echo
   bold "再試行例"
-  echo "  CPUモードで起動:"
-  echo "    GPU_MODE=cpu CTX_SIZE=2048 $0 start"
-  echo
-  echo "  GPU自動判定で再起動:"
-  echo "    GPU_MODE=auto $0 start"
+  echo "  軽めの設定で起動:"
+  echo "    CTX_SIZE=2048 $0 start"
   echo
   echo "  ログ確認:"
   echo "    $0 logs"
@@ -317,6 +324,69 @@ print_widget_guide() {
 }
 
 ###############################################################################
+# llama.cpp setup/build
+###############################################################################
+
+clone_or_update_repo() {
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    info "既存リポジトリを更新します"
+    git -C "$REPO_DIR" fetch --tags --all 2>&1 | tee -a "$SETUP_LOG"
+  else
+    info "llama.cpp を clone します"
+    git clone "$LLAMA_REPO_URL" "$REPO_DIR" 2>&1 | tee -a "$SETUP_LOG"
+  fi
+}
+
+checkout_pinned_version() {
+  cd "$REPO_DIR"
+  info "llama.cpp を $LLAMA_VERSION_TAG に固定します"
+  git fetch --tags 2>&1 | tee -a "$SETUP_LOG"
+  git checkout "$LLAMA_VERSION_TAG" 2>&1 | tee -a "$SETUP_LOG"
+}
+
+build_server_cpu_only() {
+  cd "$REPO_DIR"
+  mkdir -p "$LOG_DIR"
+  : > "$BUILD_LOG"
+
+  info "古い build ディレクトリを削除します"
+  rm -rf build
+
+  info "CMake 構成を作成します"
+  cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_VULKAN=OFF \
+    -DLLAMA_BUILD_SERVER=ON \
+    -DLLAMA_BUILD_TESTS=OFF \
+    -DGGML_BUILD_TESTS=OFF \
+    2>&1 | tee "$BUILD_LOG"
+
+  info "利用可能な server ターゲットを確認します"
+  local target=""
+  if cmake --build build --target help | grep -q 'llama-server'; then
+    target="llama-server"
+  elif cmake --build build --target help | grep -qE '(^| )server($| )'; then
+    target="server"
+  else
+    cmake --build build --target help | tee -a "$BUILD_LOG"
+    fail "server ターゲットが見つかりませんでした"
+  fi
+
+  info "ビルドターゲット: $target"
+  cmake --build build -j"$JOBS" --target "$target" 2>&1 | tee -a "$BUILD_LOG"
+
+  if [[ -x "$REPO_DIR/build/bin/llama-server" ]]; then
+    LAST_SERVER_BIN="$REPO_DIR/build/bin/llama-server"
+  elif [[ -x "$REPO_DIR/build/bin/server" ]]; then
+    LAST_SERVER_BIN="$REPO_DIR/build/bin/server"
+  else
+    fail "server 実行ファイルが見つかりません"
+  fi
+
+  save_env
+}
+
+###############################################################################
 # commands
 ###############################################################################
 
@@ -338,15 +408,14 @@ $APP_NAME
 主な環境変数:
   HOST=0.0.0.0
   PORT=8080
-  GPU_MODE=auto|vulkan|cpu
-  CTX_SIZE=2048|4096|8192
+  CTX_SIZE=2048|4096
   THREADS=<number>
   OPEN_BROWSER=1|0
   USE_WAKELOCK=1|0
 
 例:
   $0 install
-  GPU_MODE=cpu CTX_SIZE=2048 $0 start
+  CTX_SIZE=2048 $0 start
   PORT=9000 $0 restart
   $0 uninstall
 EOF
@@ -355,13 +424,16 @@ EOF
 cmd_install() {
   load_env
 
-  step "1/9" "Termux と端末の基本確認"
+  step "1/8" "Termux と端末の基本確認"
   need bash
   need pkg
-  need uname
+  need git
   need awk
-  need sed
   need grep
+  need sed
+  need cmake
+  need make
+  need clang
 
   local arch
   arch="$(uname -m)"
@@ -373,7 +445,7 @@ cmd_install() {
   CTX_SIZE="$(auto_ctx_size)"
   info "RAMに応じて推奨コンテキストを自動設定: CTX_SIZE=$CTX_SIZE"
 
-  step "2/9" "必要パッケージをインストール"
+  step "2/8" "必要パッケージをインストール"
   pkg update -y 2>&1 | tee "$SETUP_LOG"
   pkg upgrade -y 2>&1 | tee -a "$SETUP_LOG"
   pkg install -y git cmake clang make wget curl iproute2 procps 2>&1 | tee -a "$SETUP_LOG"
@@ -382,68 +454,16 @@ cmd_install() {
     warn "termux-open-url が見つかりません。環境によってはブラウザ自動起動が使えません。"
   fi
 
-  step "3/9" "llama.cpp を取得または更新"
-  if [[ -d "$REPO_DIR/.git" ]]; then
-    info "既存リポジトリを更新します"
-    git -C "$REPO_DIR" pull --ff-only 2>&1 | tee -a "$SETUP_LOG"
-  else
-    info "新規 clone を実行します"
-    git clone "$LLAMA_REPO_URL" "$REPO_DIR" 2>&1 | tee -a "$SETUP_LOG"
-  fi
+  step "3/8" "llama.cpp を取得"
+  clone_or_update_repo
 
-  step "4/9" "Vulkan対応ビルドを試行"
-  mkdir -p "$LOG_DIR"
-  : > "$BUILD_LOG"
+  step "4/8" "動作確認済みバージョンへ固定"
+  checkout_pinned_version
 
-  local build_ok="0"
-  local server_bin=""
-  local backend="cpu"
+  step "5/8" "CPU モードで llama-server をビルド"
+  build_server_cpu_only
 
-  cd "$REPO_DIR"
-
-  if [[ "${GPU_MODE:-auto}" != "cpu" ]]; then
-    set +e
-    cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_VULKAN=ON 2>&1 | tee "$BUILD_LOG"
-    local cmake_rc=$?
-    if [[ $cmake_rc -eq 0 ]]; then
-      cmake --build build -j"$JOBS" 2>&1 | tee -a "$BUILD_LOG"
-      local build_rc=$?
-      if [[ $build_rc -eq 0 ]]; then
-        build_ok="1"
-        backend="vulkan"
-        info "Vulkan ビルド成功"
-      else
-        warn "Vulkan ビルドに失敗。CPUビルドへフォールバックします。"
-      fi
-    else
-      warn "Vulkan 構成に失敗。CPUビルドへフォールバックします。"
-    fi
-    set -e
-  fi
-
-  if [[ "$build_ok" != "1" ]]; then
-    step "5/9" "CPUビルドを実行"
-    cmake -B build -DCMAKE_BUILD_TYPE=Release 2>&1 | tee "$BUILD_LOG"
-    cmake --build build -j"$JOBS" 2>&1 | tee -a "$BUILD_LOG"
-    backend="cpu"
-  else
-    step "5/9" "CPUフォールバックは不要でした"
-    info "GPUモード候補として Vulkan を採用します"
-  fi
-
-  if [[ -x "$REPO_DIR/build/bin/llama-server" ]]; then
-    server_bin="$REPO_DIR/build/bin/llama-server"
-  elif [[ -x "$REPO_DIR/build/bin/server" ]]; then
-    server_bin="$REPO_DIR/build/bin/server"
-  else
-    fail "llama-server バイナリが見つかりません。$REPO_DIR/build/bin を確認してください。"
-  fi
-
-  LAST_BACKEND="$backend"
-  LAST_SERVER_BIN="$server_bin"
-  save_env
-
-  step "6/9" "モデルをダウンロード"
+  step "6/8" "モデルをダウンロード"
   mkdir -p "$(dirname "$MODEL_FILE")"
   : > "$DOWNLOAD_LOG"
   if [[ -f "$MODEL_FILE" && -s "$MODEL_FILE" ]]; then
@@ -463,21 +483,22 @@ cmd_install() {
 
   [[ -s "$MODEL_FILE" ]] || fail "モデルファイルが空です。ダウンロードに失敗した可能性があります。"
 
-  step "7/9" "Termux:Widget 用ショートカットを作成"
+  step "7/8" "Termux:Widget 用ショートカットを作成"
   create_widget_shortcuts
 
-  step "8/9" "サーバを起動"
+  step "8/8" "サーバを起動"
   cmd_start
 
-  step "9/9" "案内を表示"
   local local_ip
   local_ip="$(get_local_ip || true)"
 
+  echo
   bold "セットアップ完了"
-  echo "  サーバ種別         : llama-server"
+  echo "  サーバ種別         : $(basename "$LAST_SERVER_BIN")"
   echo "  利用モデル         : $MODEL_NAME"
   echo "  モデルファイル      : $MODEL_FILE"
-  echo "  使用バックエンド    : $LAST_BACKEND"
+  echo "  llama.cpp version   : $LLAMA_VERSION_TAG"
+  echo "  動作モード          : CPU"
   echo "  ホスト              : $HOST"
   echo "  ポート              : $PORT"
   echo "  コンテキスト長      : $CTX_SIZE"
@@ -505,7 +526,7 @@ cmd_start() {
     elif [[ -x "$REPO_DIR/build/bin/server" ]]; then
       server_bin="$REPO_DIR/build/bin/server"
     else
-      fail "llama-server バイナリがありません。先に '$0 install' を実行してください。"
+      fail "server 実行ファイルがありません。先に '$0 install' を実行してください。"
     fi
   fi
 
@@ -523,28 +544,9 @@ cmd_start() {
   mkdir -p "$LOG_DIR"
   : > "$SERVER_LOG"
 
-  local backend="${GPU_MODE:-auto}"
-  local ngl_args=()
-  local actual_backend="cpu"
-
-  if [[ "$backend" = "cpu" ]]; then
-    actual_backend="cpu"
-    ngl_args=(-ngl 0)
-  elif [[ "$backend" = "vulkan" ]]; then
-    actual_backend="vulkan"
-    ngl_args=(-ngl "$NGL_DEFAULT")
-  else
-    if [[ "${LAST_BACKEND:-cpu}" = "vulkan" ]]; then
-      actual_backend="vulkan"
-      ngl_args=(-ngl "$NGL_DEFAULT")
-    else
-      actual_backend="cpu"
-      ngl_args=(-ngl 0)
-    fi
-  fi
-
   info "サーバを起動します"
-  info "  backend = $actual_backend"
+  info "  binary  = $server_bin"
+  info "  mode    = CPU"
   info "  host    = $HOST"
   info "  port    = $PORT"
   info "  ctx     = $CTX_SIZE"
@@ -557,7 +559,7 @@ cmd_start() {
     --port "$PORT" \
     -t "$THREADS" \
     -c "$CTX_SIZE" \
-    "${ngl_args[@]}" \
+    -ngl 0 \
     >"$SERVER_LOG" 2>&1 &
   local pid=$!
   set -e
@@ -569,7 +571,6 @@ cmd_start() {
   local i
   for i in $(seq 1 90); do
     if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
-      LAST_BACKEND="$actual_backend"
       LAST_SERVER_BIN="$server_bin"
       save_env
 
@@ -578,7 +579,6 @@ cmd_start() {
       local_ip="$(get_local_ip || true)"
 
       echo "  PID                : $pid"
-      echo "  使用バックエンド    : $LAST_BACKEND"
       print_urls "$local_ip"
       open_browser_if_possible "$local_ip"
       return 0
@@ -593,46 +593,6 @@ cmd_start() {
     sleep 1
   done
   printf "\n"
-
-  if [[ "$GPU_MODE" = "auto" && "$actual_backend" = "vulkan" ]]; then
-    warn "GPUモードでの起動に失敗した可能性があります。CPUモードで再試行します。"
-    rm -f "$PID_FILE" || true
-
-    nohup "$server_bin" \
-      -m "$MODEL_FILE" \
-      --host "$HOST" \
-      --port "$PORT" \
-      -t "$THREADS" \
-      -c "$CTX_SIZE" \
-      -ngl 0 \
-      >"$SERVER_LOG" 2>&1 &
-    pid=$!
-    echo "$pid" > "$PID_FILE"
-
-    for i in $(seq 1 90); do
-      if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
-        LAST_BACKEND="cpu"
-        LAST_SERVER_BIN="$server_bin"
-        save_env
-
-        yellow "GPUモードは利用できなかったため、CPUモードで起動しました。"
-        local local_ip
-        local_ip="$(get_local_ip || true)"
-        echo "  PID                : $pid"
-        echo "  使用バックエンド    : cpu"
-        print_urls "$local_ip"
-        open_browser_if_possible "$local_ip"
-        return 0
-      fi
-
-      if ! kill -0 "$pid" 2>/dev/null; then
-        break
-      fi
-      printf "\rCPU再試行中... %02d/90" "$i"
-      sleep 1
-    done
-    printf "\n"
-  fi
 
   red "サーバ起動に失敗しました。"
   echo "確認ログ:"
@@ -674,12 +634,13 @@ cmd_status() {
   echo "  BASE_DIR           : $BASE_DIR"
   echo "  MODEL_FILE         : $MODEL_FILE"
   echo "  MODEL_URL          : $MODEL_URL"
+  echo "  LLAMA_VERSION      : $LLAMA_VERSION"
   echo "  HOST               : $HOST"
   echo "  PORT               : $PORT"
   echo "  THREADS            : $THREADS"
   echo "  CTX_SIZE           : $CTX_SIZE"
-  echo "  GPU_MODE           : $GPU_MODE"
-  echo "  LAST_BACKEND       : $LAST_BACKEND"
+  echo "  MODE               : CPU"
+  echo "  SERVER_BIN         : ${LAST_SERVER_BIN:-unknown}"
   echo "  SERVER_LOG         : $SERVER_LOG"
   echo "  BUILD_LOG          : $BUILD_LOG"
   if server_pid_running; then
@@ -766,7 +727,7 @@ cmd_uninstall() {
 # entry point
 ###############################################################################
 
-case "${1:-help}" in
+case "${1:-install}" in
   install)     cmd_install ;;
   start)       cmd_start ;;
   stop)        cmd_stop ;;
