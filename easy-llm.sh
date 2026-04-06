@@ -430,7 +430,7 @@ cmd_install() {
 # 自分自身を保存
 if [[ ! -f "$HOME/easy-llm.sh" ]]; then
   info "スクリプトを保存します: $HOME/easy-llm.sh"
-  curl -fsSL "https://raw.githubusercontent.com/ゲームでIT/easy-local-llm/main/easy-llm.sh" -o "$HOME/easy-llm.sh"
+  curl -fsSL "https://raw.githubusercontent.com/game-de-it/easy-local-llm/main/easy-llm.sh" -o "$HOME/easy-llm.sh"
   chmod +x "$HOME/easy-llm.sh"
 fi
 
