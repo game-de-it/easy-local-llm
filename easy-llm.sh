@@ -37,7 +37,7 @@ JOBS_DEFAULT="$(nproc)"
 NGL_DEFAULT="99"
 
 CTX_SIZE_DEFAULT="4096"
-GPU_MODE_DEFAULT="auto"     # auto | vulkan | cpu
+GPU_MODE_DEFAULT="cpu"     # auto | vulkan | cpu
 OPEN_BROWSER_DEFAULT="1"    # 1=yes 0=no
 USE_WAKELOCK_DEFAULT="1"    # 1=yes 0=no
 
