@@ -361,16 +361,19 @@ build_server_cpu_only() {
     -DGGML_BUILD_TESTS=OFF \
     2>&1 | tee "$BUILD_LOG"
 
-  info "利用可能な server ターゲットを確認します"
-  local target=""
-  if cmake --build build --target help | grep -q 'llama-server'; then
-    target="llama-server"
-  elif cmake --build build --target help | grep -qE '(^| )server($| )'; then
-    target="server"
-  else
-    cmake --build build --target help | tee -a "$BUILD_LOG"
-    fail "server ターゲットが見つかりませんでした"
-  fi
+info "利用可能な server ターゲットを確認します"
+local target=""
+local help_output=""
+help_output="$(cmake --build build --target help 2>&1)"
+printf '%s\n' "$help_output" | tee -a "$BUILD_LOG" >/dev/null
+
+if printf '%s\n' "$help_output" | grep -q 'llama-server'; then
+  target="llama-server"
+elif printf '%s\n' "$help_output" | grep -qE '(^|[^[:alnum:]_-])server([^[:alnum:]_-]|$)'; then
+  target="server"
+else
+  fail "server ターゲットが見つかりませんでした"
+fi
 
   info "ビルドターゲット: $target"
   cmake --build build -j"$JOBS" --target "$target" 2>&1 | tee -a "$BUILD_LOG"
