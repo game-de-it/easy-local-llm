@@ -276,41 +276,41 @@ EOF
 "$HOME/easy-llm.sh" stop
 EOF
 
-  cat > "$SHORTCUTS_DIR/LLM状態" <<EOF
-#!/data/data/com.termux/files/usr/bin/bash
-"$HOME/easy-llm.sh" status
-EOF
+#  cat > "$SHORTCUTS_DIR/LLM状態" <<EOF
+##!/data/data/com.termux/files/usr/bin/bash
+#"$HOME/easy-llm.sh" status
+#EOF
 
-  cat > "$SHORTCUTS_DIR/LLM URL" <<EOF
-#!/data/data/com.termux/files/usr/bin/bash
-"$HOME/easy-llm.sh" urls
-EOF
+#  cat > "$SHORTCUTS_DIR/LLM URL" <<EOF
+##!/data/data/com.termux/files/usr/bin/bash
+#"$HOME/easy-llm.sh" urls
+#EOF
 
   chmod +x \
     "$SHORTCUTS_DIR/LLM起動" \
-    "$SHORTCUTS_DIR/LLM停止" \
-    "$SHORTCUTS_DIR/LLM状態" \
-    "$SHORTCUTS_DIR/LLM URL"
+    "$SHORTCUTS_DIR/LLM停止" 
+#    "$SHORTCUTS_DIR/LLM状態" \
+#    "$SHORTCUTS_DIR/LLM URL"
 
   info "Termux:Widget 用ショートカットを作成しました"
   info "  $SHORTCUTS_DIR/LLM起動"
   info "  $SHORTCUTS_DIR/LLM停止"
-  info "  $SHORTCUTS_DIR/LLM状態"
-  info "  $SHORTCUTS_DIR/LLM URL"
+#  info "  $SHORTCUTS_DIR/LLM状態"
+#  info "  $SHORTCUTS_DIR/LLM URL"
 }
 
 remove_widget_shortcuts() {
   rm -f \
     "$SHORTCUTS_DIR/LLM起動" \
     "$SHORTCUTS_DIR/LLM停止" \
-    "$SHORTCUTS_DIR/LLM状態" \
-    "$SHORTCUTS_DIR/LLM URL"
+#    "$SHORTCUTS_DIR/LLM状態" \
+#    "$SHORTCUTS_DIR/LLM URL"
 
   rm -f \
     "$DYNAMIC_SHORTCUTS_DIR/LLM起動" \
     "$DYNAMIC_SHORTCUTS_DIR/LLM停止" \
-    "$DYNAMIC_SHORTCUTS_DIR/LLM状態" \
-    "$DYNAMIC_SHORTCUTS_DIR/LLM URL"
+#    "$DYNAMIC_SHORTCUTS_DIR/LLM状態" \
+#    "$DYNAMIC_SHORTCUTS_DIR/LLM URL"
 }
 
 print_widget_guide() {
