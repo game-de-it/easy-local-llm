@@ -427,6 +427,13 @@ EOF
 cmd_install() {
   load_env
 
+# 自分自身を保存
+if [[ ! -f "$HOME/easy-llm.sh" ]]; then
+  info "スクリプトを保存します: $HOME/easy-llm.sh"
+  curl -fsSL "https://raw.githubusercontent.com/ゲームでIT/easy-local-llm/main/easy-llm.sh" -o "$HOME/easy-llm.sh"
+  chmod +x "$HOME/easy-llm.sh"
+fi
+
   step "1/8" "Termux と端末の基本確認"
   need bash
   need pkg
